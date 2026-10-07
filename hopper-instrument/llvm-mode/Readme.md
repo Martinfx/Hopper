@@ -1,6 +1,7 @@
 ## LLVM Mode
 - LLVM mode is still under development. Though it works currently, some features are not yet implemented.
-- our `llvm-mode` instrumentation needs llvm dependencies (>= LLVM 10.0) and only tested in LLVM 10.0 and LLVM 14.0 currently.
+- our `llvm-mode` instrumentation needs llvm dependencies (>= LLVM 16.0) and is tested with LLVM 18, 19 and 20.
+- `hopper-clang` invokes the clang of the LLVM the pass was built against (set `HOPPER_CC`/`HOPPER_CXX` to override), since the pass plugin only loads into that clang.
 
 ## Plan
 - [x] API-sensitive branch counting

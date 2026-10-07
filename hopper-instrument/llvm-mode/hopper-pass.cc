@@ -118,7 +118,7 @@ struct ModuleCovInstrument {
     /* Get globals for the SHM region and the previous location. */
     HopperMapPtr =
         new GlobalVariable(M, Int8PtrTy, false, GlobalValue::CommonLinkage,
-                           ConstantInt::get(Int32Ty, 0), "__hopper_area_ptr");
+                           Constant::getNullValue(Int8PtrTy), "__hopper_area_ptr");
 
     HopperPrevLoc = new GlobalVariable(
         M, Int32Ty, false, GlobalValue::CommonLinkage,
@@ -342,10 +342,11 @@ struct ModuleCovInstrument {
     Value *SizeArg = ConstantInt::get(Int32Ty, num_bytes);
     SmallVector<Constant *, 16> ArgList;
     for (auto It : Sw->cases()) {
-      Constant *C = It.getCaseValue();
-      if (C->getType()->getScalarSizeInBits() > Int64Ty->getScalarSizeInBits())
+      ConstantInt *C = It.getCaseValue();
+      if (C->getBitWidth() > Int64Ty->getScalarSizeInBits())
         continue;
-      ArgList.push_back(ConstantExpr::getCast(CastInst::ZExt, C, Int64Ty));
+      // LLVM 18 removed zext constant expressions; extend the value directly.
+      ArgList.push_back(ConstantInt::get(Int64Ty, C->getZExtValue()));
     }
     ArrayType *ArrayOfInt64Ty = ArrayType::get(Int64Ty, ArgList.size());
     GlobalVariable *ArgGV = new GlobalVariable(
@@ -445,7 +446,12 @@ struct ModuleCovInstrument {
     LLVMContext &C = M.getContext();
 
     for (auto &F : M) {
+#if LLVM_VERSION_MAJOR >= 16
+      // StringRef::startswith was removed in LLVM 19.
+      if (F.isDeclaration() || F.getName().starts_with("asan.module"))
+#else
       if (F.isDeclaration() || F.getName().startswith(StringRef("asan.module")))
+#endif
         continue;
 
       std::vector<BasicBlock *> bb_list;
@@ -546,9 +552,12 @@ llvm::PassPluginLibraryInfo getHopperPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "HopperCoverage", LLVM_VERSION_STRING,
           [](PassBuilder &PB) {
             PB.registerOptimizerLastEPCallback(
-                [](ModulePassManager &MPM, OptimizationLevel OL) {
-                  MPM.addPass(HopperCoverage());
-                });
+                [](ModulePassManager &MPM, OptimizationLevel OL
+#if LLVM_VERSION_MAJOR >= 20
+                   ,
+                   ThinOrFullLTOPhase Phase
+#endif
+                ) { MPM.addPass(HopperCoverage()); });
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &MPM,
                    ArrayRef<PassBuilder::PipelineElement>) {

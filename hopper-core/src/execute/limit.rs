@@ -19,18 +19,25 @@ impl SetLimit for Command {
             let func = move || {
                 if size > 0 {
                     let size = size << 20;
-                    let mem_limit: libc::rlim_t = size;
+                    // `rlim_t` is unsigned on Linux and macOS but signed on FreeBSD.
+                    let mem_limit = size as libc::rlim_t;
                     let r = libc::rlimit {
                         rlim_cur: mem_limit,
                         rlim_max: mem_limit,
                     };
                     unsafe {
-                        #[cfg(any(target_os = "linux", target_os = "macos"))]
+                        // FreeBSD's RLIMIT_DATA only covers the brk() heap, while its
+                        // jemalloc allocates with mmap(), so limit the address space.
+                        #[cfg(any(
+                            target_os = "linux",
+                            target_os = "macos",
+                            target_os = "freebsd"
+                        ))]
                         libc::setrlimit(libc::RLIMIT_AS, &r);
                         // This takes care of OpenBSD, which doesn't have RLIMIT_AS, but
                         // according to reliable sources, RLIMIT_DATA covers anonymous
                         // maps - so we should be getting good protection against OOM bugs
-                        #[cfg(target_os = "freebsd")]
+                        #[cfg(target_os = "openbsd")]
                         libc::setrlimit(libc::RLIMIT_DATA, &r);
                     }
                 }

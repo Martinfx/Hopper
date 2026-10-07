@@ -67,7 +67,8 @@ void test_complicated_struct2(ComplicatedStruct *);
 /* Test private fields for structure */
 typedef struct ValWithPrivateField {
   int val;
-  int __unused[16];
+  // `__unused` is a <sys/cdefs.h> macro on FreeBSD.
+  int __private_data[16];
 } ValWithPrivateField;
 
 void test_private_field(ValWithPrivateField obj);

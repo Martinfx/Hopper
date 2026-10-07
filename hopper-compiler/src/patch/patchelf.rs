@@ -1,4 +1,4 @@
-//! Linux specification
+//! ELF specification (Linux and FreeBSD)
 //! set shared libary's soname
 
 use std::{env, path::PathBuf, process::Command};
@@ -7,12 +7,16 @@ use eyre::{ensure, Context, Result};
 
 use crate::binary_info::BinaryInfo;
 
+/// Prefer the patchelf installed by build.sh, then fall back to the one on
+/// PATH, such as FreeBSD's sysutils/patchelf package.
 fn patchelf_path() -> Result<PathBuf> {
     if let Ok(path) = env::var("HOPPER_PATH") {
-        return Ok(format!("{}/patchelf", &path).into());
+        let bundled = PathBuf::from(path).join("patchelf");
+        if bundled.is_file() {
+            return Ok(bundled);
+        }
     }
-    let exe_dir = env::current_dir()?;
-    Ok(exe_dir)
+    Ok(PathBuf::from("patchelf"))
 }
 
 pub fn patchelf_set_so_name(lib_name: &str, path: &str) -> Result<()> {

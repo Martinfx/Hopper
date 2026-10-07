@@ -1,3 +1,6 @@
+// Library type, symbol names, and patch ranges are only consumed by E9 patching.
+#![cfg_attr(not(any(target_os = "linux", target_os = "windows")), allow(dead_code))]
+
 use goblin::Object;
 use std::collections::HashSet;
 use std::fs;

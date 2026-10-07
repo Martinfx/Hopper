@@ -1,7 +1,7 @@
 use eyre::{ensure, ContextCompat, Result};
 use std::{fs::File, path::Path};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 static DYNAMIC_LIB_SUFFIX: &str = ".so";
 #[cfg(target_os = "macos")]
 static DYNAMIC_LIB_SUFFIX: &'static str = ".dylib";

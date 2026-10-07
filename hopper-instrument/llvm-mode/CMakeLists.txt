@@ -23,6 +23,8 @@ add_compile_definitions(LLVM_VERSION_MAJOR=${LLVM_VERSION_MAJOR})
 ##### Compiler
 add_executable(HopperClang hopper-clang.c)
 set_target_properties(HopperClang PROPERTIES OUTPUT_NAME "hopper-clang")
+# The pass plugin only loads into the clang of the LLVM it is built against.
+target_compile_definitions(HopperClang PRIVATE HOPPER_LLVM_BINDIR="${LLVM_TOOLS_BINARY_DIR}")
 
 add_custom_command(TARGET HopperClang POST_BUILD
     COMMAND ln -sf "hopper-clang" "hopper-clang++")

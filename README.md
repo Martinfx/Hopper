@@ -11,7 +11,7 @@ To learn more about Hopper, check out our [paper](https://arxiv.org/pdf/2309.034
 
 ## Build Hopper
 ### Build Requirements
-- Linux-amd64 (Tested on Ubuntu 20.04 and Debian Buster)
+- Linux-amd64 (Tested on Ubuntu 20.04 and Debian Buster), or FreeBSD 14 in LLVM mode (see [Build on FreeBSD](#build-on-freebsd))
 - Rust stable (>= 1.60), can be obtained using [rustup](https://rustup.rs/)
 - Clang (>= 5.0, [Install Clang](https://rust-lang.github.io/rust-bindgen/requirements.html)), [rust-bindgen](https://rust-lang.github.io/rust-bindgen/) leverages libclang to preprocess, parse, and type check C and C++ header files.
 
@@ -29,6 +29,27 @@ You can choose to use the Dockerfile, which build the requirements and Hopper.
 docker build -t hopper ./
 docker run --name hopper_dev --privileged -v /path-to-lib:/fuzz -it --rm hopper /bin/bash
 ```
+
+### Build on FreeBSD
+Hopper runs on FreeBSD 14 (amd64) in [LLVM mode](./hopper-instrument/llvm-mode/) only: E9Patch rewrites Linux binaries, so the target library must be compiled with `hopper-clang`.
+
+```sh
+pkg install bash git rust cmake llvm18 patchelf
+./build.sh
+```
+
+The base system clang cannot load the Hopper pass, so `build.sh` builds it against the newest LLVM from ports under `/usr/local/llvm*`, and `hopper-clang` invokes that LLVM's clang. Set `LLVM_DIR` to choose another one, e.g. `LLVM_DIR=/usr/local/llvm19/lib/cmake/llvm ./build.sh`.
+
+Then build the library with `hopper-clang` and use `hopper` as on Linux:
+```sh
+CC=/path-to-hopper/install/hopper-clang ./configure && make
+hopper compile --header ./cJSON.h --library ./libcjson.so --output output
+hopper fuzz output --func-pattern cJSON_*
+```
+
+- Hopper exchanges feedback through System V shared memory. In a jail, create it with the `sysvshm=new` jail parameter.
+- `hopper fuzz` pins the fuzzer to a free core with `cpuset(1)`.
+- The testsuite parses test annotations with GNU grep: `pkg install gnugrep`.
 
 ## Compile library with Hopper
 Take `csjon` for example ([More examples](./examples/)).
@@ -96,6 +117,7 @@ Set system core dumps as AFL (on the host if you execute Hopper in a Docker cont
 ```
 echo core | sudo tee /proc/sys/kernel/core_pattern
 ```
+FreeBSD writes core files directly and needs no change.
 
 ### Function pattern 
 Hopper generates inputs for all functions that appear in both headers and libraries by default. However, there are two ways to filter functions in Hopper: excluding functions or including functions. This way, it can be focus on interesting functions.

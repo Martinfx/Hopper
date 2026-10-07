@@ -35,11 +35,53 @@
 #include <string.h>
 #include <unistd.h>
 
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
 #include "alloc_inl.h"
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 static u8* obj_path;       /* Path to runtime libraries         */
 static u8** cc_params;     /* Parameters passed to the real CC  */
 static u32 cc_par_cnt = 1; /* Param count, including argv0      */
+
+/* Resolve the path of this executable without requiring a mounted procfs.
+   Returns the path length, or -1 when it cannot be determined. */
+
+static ssize_t current_exe_path(char* buf, size_t size) {
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+  size_t len = size;
+  if (sysctl(mib, 4, buf, &len, NULL, 0) != 0 || len == 0) return -1;
+  return (ssize_t)strnlen(buf, size);
+#elif defined(__linux__) || defined(__ANDROID__)
+  return readlink("/proc/self/exe", buf, size);
+#elif defined(__NetBSD__)
+  return readlink("/proc/curproc/exe", buf, size);
+#else
+  (void)buf;
+  (void)size;
+  return -1;
+#endif
+}
+
+/* Pick the compiler that matches the LLVM the pass plugin was built against:
+   a plugin only loads into that clang (FreeBSD's base clang cannot load
+   plugins at all). Fall back to the name on PATH. */
+
+static u8* default_compiler(const char* name) {
+#ifdef HOPPER_LLVM_BINDIR
+  u8* candidate = alloc_printf("%s/%s", HOPPER_LLVM_BINDIR, name);
+  if (!access((char*)candidate, X_OK)) return candidate;
+  ck_free(candidate);
+#endif
+  return (u8*)name;
+}
 
 /* Try to find the runtime libraries. If that fails, abort. */
 
@@ -79,35 +121,23 @@ static void find_obj(u8* argv0) {
     ck_free(tmp);
     ck_free(dir);
   } else {
-    char* procname = NULL;
-#if defined(__FreeBSD__) || defined(__DragonFly__)
-    procname = "/proc/curproc/file";
-#elif defined(__linux__) || defined(__ANDROID__)
-    procname = "/proc/self/exe";
-#elif defined(__NetBSD__)
-    procname = "/proc/curproc/exe";
-#endif
-    if (procname) {
-#define PATH_MAX 4096
-      char exepath[PATH_MAX];
-      ssize_t exepath_len = readlink(procname, exepath, sizeof(exepath));
-      if (exepath_len > 0 && exepath_len < PATH_MAX) {
-        exepath[exepath_len] = 0;
-        slash = strrchr(exepath, '/');
+    char exepath[PATH_MAX];
+    ssize_t exepath_len = current_exe_path(exepath, sizeof(exepath));
+    if (exepath_len > 0 && exepath_len < PATH_MAX) {
+      exepath[exepath_len] = 0;
+      slash = strrchr(exepath, '/');
 
-        if (slash) {
-          *slash = 0;
-          tmp = alloc_printf("%s/libHopperPass.so", exepath);
+      if (slash) {
+        *slash = 0;
+        tmp = alloc_printf("%s/libHopperPass.so", exepath);
 
-          if (!access(tmp, R_OK)) {
-            obj_path = exepath;
-            ck_free(tmp);
-            return;
-          }
-
+        if (!access(tmp, R_OK)) {
+          obj_path = ck_strdup((u8*)exepath);
           ck_free(tmp);
-          ck_free(exepath);
+          return;
         }
+
+        ck_free(tmp);
       }
     }
   }
@@ -131,10 +161,10 @@ static void edit_params(u32 argc, char** argv) {
 
   if (!strcmp(name, "hopper-clang++")) {
     u8* alt_cxx = getenv("HOPPER_CXX");
-    cc_params[0] = alt_cxx ? alt_cxx : (u8*)"clang++";
+    cc_params[0] = alt_cxx ? alt_cxx : default_compiler("clang++");
   } else {
     u8* alt_cc = getenv("HOPPER_CC");
-    cc_params[0] = alt_cc ? alt_cc : (u8*)"clang";
+    cc_params[0] = alt_cc ? alt_cc : default_compiler("clang");
   }
 
   // Do not support TRACE_PC

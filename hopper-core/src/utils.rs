@@ -1,5 +1,6 @@
 //! Common functions.
 
+#[cfg(not(target_os = "freebsd"))]
 use findshlibs::{SharedLibrary, TargetSharedLibrary};
 use once_cell::sync::OnceCell;
 use std::fs::File;
@@ -375,6 +376,7 @@ pub fn is_in_shlib(ptr: *const u8) -> bool {
         let dir = path.to_str().unwrap();
         let mut start = 0;
         let mut end = 0;
+        #[cfg(not(target_os = "freebsd"))]
         TargetSharedLibrary::each(|shlib| {
             let name = shlib.name().to_string_lossy();
             if name.starts_with(dir) && !name.ends_with("hopper-harness") {
@@ -382,10 +384,56 @@ pub fn is_in_shlib(ptr: *const u8) -> bool {
                 end = start + shlib.len();
             }
         });
+        // findshlibs does not enumerate libraries on FreeBSD.
+        #[cfg(target_os = "freebsd")]
+        each_loaded_object(|name, range_start, range_end| {
+            if name.starts_with(dir) && !name.ends_with("hopper-harness") {
+                start = range_start;
+                end = range_end;
+            }
+        });
         (start, end)
     });
     let ptr = ptr as usize;
     ptr > *start && ptr < *end
+}
+
+/// Visit every loaded object with its path and `[start, end)` load range.
+#[cfg(target_os = "freebsd")]
+fn each_loaded_object<F: FnMut(&str, usize, usize)>(mut visit: F) {
+    const PT_LOAD: u32 = 1;
+
+    unsafe extern "C" fn callback<F: FnMut(&str, usize, usize)>(
+        info: *mut libc::dl_phdr_info,
+        _size: usize,
+        data: *mut libc::c_void,
+    ) -> libc::c_int {
+        let visit = &mut *(data as *mut F);
+        let info = &*info;
+        if info.dlpi_name.is_null() || info.dlpi_phdr.is_null() {
+            return 0;
+        }
+        let name = std::ffi::CStr::from_ptr(info.dlpi_name).to_string_lossy();
+        let phdrs = std::slice::from_raw_parts(info.dlpi_phdr, info.dlpi_phnum as usize);
+        let mut low = usize::MAX;
+        let mut high = 0;
+        for phdr in phdrs.iter().filter(|phdr| phdr.p_type == PT_LOAD) {
+            low = low.min(phdr.p_vaddr as usize);
+            high = high.max((phdr.p_vaddr + phdr.p_memsz) as usize);
+        }
+        if low < high {
+            let bias = info.dlpi_addr as usize;
+            visit(&name, bias + low, bias + high);
+        }
+        0
+    }
+
+    unsafe {
+        libc::dl_iterate_phdr(
+            Some(callback::<F>),
+            &mut visit as *mut F as *mut libc::c_void,
+        );
+    }
 }
 
 #[inline]

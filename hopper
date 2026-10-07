@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # set -exuo pipefail
 
@@ -44,12 +44,15 @@ if [[ -e "hopper.config" ]]; then
     done < "hopper.config"
 fi
 
-CORE_PATTERN=$(cat /proc/sys/kernel/core_pattern)
-if [ "$CORE_PATTERN" != "core" ]; then
-    warn "To avoid having crashes misinterpreted as timeouts, please log in as root"
-    warn "and temporarily modify /proc/sys/kernel/core_pattern, like so:"
-    warn "echo core > /proc/sys/kernel/core_pattern"
-    exit 1
+# Linux may pipe core dumps to a slow handler. FreeBSD writes them to files.
+if [[ "$(uname -s)" == "Linux" ]]; then
+    CORE_PATTERN=$(cat /proc/sys/kernel/core_pattern)
+    if [ "$CORE_PATTERN" != "core" ]; then
+        warn "To avoid having crashes misinterpreted as timeouts, please log in as root"
+        warn "and temporarily modify /proc/sys/kernel/core_pattern, like so:"
+        warn "echo core > /proc/sys/kernel/core_pattern"
+        exit 1
+    fi
 fi
 
 CMD=${1:-help}
@@ -192,7 +195,7 @@ clean)
     rm -rf misc
     rm -rf release
     rm -rf working
-    find . -maxdepth 1 -type f ! -executable ! -name "test*" ! -name "*.log" ! -name "func_list" ! -name "custom_rule" ! -name "hopper.config" -delete
+    find . -maxdepth 1 -type f ! -perm -u+x ! -name "test*" ! -name "*.log" ! -name "func_list" ! -name "custom_rule" ! -name "hopper.config" -delete
     info "clean files in '$OUTPUT_DIR' directory"
     ;;
 clang)

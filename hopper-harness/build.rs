@@ -114,15 +114,30 @@ impl callbacks::ParseCallbacks for HopperCallbacks {
     */
 }
 
-#[cfg(target_os = "linux")]
-static DYNAMIC_LIB_SUFFIX: &str = ".so";
-#[cfg(target_os = "macos")]
-static DYNAMIC_LIB_SUFFIX: &'static str = ".dylib";
-#[cfg(target_os = "windows")]
-static DYNAMIC_LIB_SUFFIX: &str = ".dll";
 static STATIC_LIB_SUFFIX: &str = ".a";
 
+/// Operating system of the harness being built, which differs from the build
+/// script's own host when cross-compiling.
+fn target_os() -> String {
+    env::var("CARGO_CFG_TARGET_OS").unwrap()
+}
+
+/// ELF hosts link `libfoo.so` as `-lfoo` and resolve it through an rpath.
+fn is_elf_target(os: &str) -> bool {
+    matches!(os, "linux" | "freebsd")
+}
+
+fn dynamic_lib_suffix(os: &str) -> &'static str {
+    match os {
+        "macos" => ".dylib",
+        "windows" => ".dll",
+        _ => ".so",
+    }
+}
+
 fn link_libraries() {
+    let os = target_os();
+    let dynamic_lib_suffix = dynamic_lib_suffix(&os);
     // Tell cargo to tell rustc to link shared library.
     let library_env = env::var("HOPPER_LIBRARY").unwrap();
     let library_list = library_env.split(',');
@@ -130,14 +145,17 @@ fn link_libraries() {
         let library_path = PathBuf::from(library);
         let dir = library_path.parent().unwrap().to_string_lossy();
         let lib = library_path.file_name().unwrap().to_string_lossy();
-        #[cfg(target_os = "linux")]
-        let lib = lib.trim_start_matches("lib");
+        let lib = if is_elf_target(&os) {
+            lib.trim_start_matches("lib")
+        } else {
+            &lib
+        };
         let (lib, is_static) = if let Some(s) = lib.strip_suffix(STATIC_LIB_SUFFIX) {
             (s, true)
         } else {
             let (lib, _) = lib
-                .split_once(DYNAMIC_LIB_SUFFIX)
-                .unwrap_or_else(|| panic!("library should end with `{DYNAMIC_LIB_SUFFIX}`"));
+                .split_once(dynamic_lib_suffix)
+                .unwrap_or_else(|| panic!("library should end with `{dynamic_lib_suffix}`"));
             (lib, false)
         };
         println!("cargo:warning=dir={dir}, lib={lib}");
@@ -145,13 +163,15 @@ fn link_libraries() {
             println!("cargo:rustc-link-lib=static={lib}");
         } else {
             println!("cargo:rustc-link-lib=dylib={lib}");
-            #[cfg(target_os = "linux")]
-            println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
+            if is_elf_target(&os) {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
+            }
         }
         println!("cargo:rustc-link-search=native={dir}");
     }
-    #[cfg(target_os = "linux")]
-    println!("cargo:rustc-link-arg=-Wl,--allow-shlib-undefined");
+    if is_elf_target(&os) {
+        println!("cargo:rustc-link-arg=-Wl,--allow-shlib-undefined");
+    }
 }
 
 fn main() {

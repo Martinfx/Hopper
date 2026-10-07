@@ -12,7 +12,7 @@ mod cargo;
 mod check;
 mod config;
 mod dwarf;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod patch;
 mod binary_info;
 
@@ -69,12 +69,17 @@ fn instrument(library: &Path, output: &Path, config: &Config, lib_info: &BinaryI
             }
             #[cfg(target_os = "linux")]
             patch::e9_instrument(library, &output_lib, lib_info)?;
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            eyre::bail!(
+                "E9Patch binary instrumentation is only available on Linux. \
+                 Rebuild the library with hopper-clang (LLVM mode) or pass `--instrument llvm`."
+            );
         }
         InstrumentType::Llvm | InstrumentType::Cov => {
             fs::copy(library, &output_lib).context("fail to copy library")?;
         }
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     if let InstrumentType::Cov = config.instrument {
         // Do not patch the library in cov mode, as it corrupts the PT_NOTE segment 
         // which makes __llvm_write_binary_ids crash.

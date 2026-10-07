@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 realpath() {
     [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
@@ -18,7 +18,17 @@ USAGE="Usage: $(basename $0) [make|compile|build|test|build_all|test_all|help] .
     build_all          : Build all libraries.
     test_all           : Test all functions."
 
-CC=${CC:-gcc}
+if [[ "$(uname -s)" == "FreeBSD" ]]; then
+    CC=${CC:-cc}
+else
+    CC=${CC:-gcc}
+fi
+# The test annotations are parsed with PCRE (-P), which needs GNU grep
+# (textproc/gnugrep installs it as ggrep on FreeBSD).
+GREP=grep
+if command -v ggrep > /dev/null; then
+    GREP=ggrep
+fi
 CFLAGS=${CFLAGS:-}
 LDFLAGS="-g -fPIC -Wall"
 if [[ -v USE_LLVM ]]; then
@@ -35,7 +45,7 @@ init_lib_name() {
         DY_LIB_NAME="${LIB_NAME}.dylib"
         DY_LDFLAGS=-shared
         ;;
-    Linux)
+    Linux|FreeBSD)
         DY_LIB_NAME="${LIB_NAME}.so"
         DY_LDFLAGS=-shared
         ;;
@@ -93,7 +103,7 @@ hopper_test() {
     [ -d "${DIR}/seeds" ] && export HOPPER_SEED_DIR=${DIR}/seeds
     unset HOPPER_DICT
     [ -f "${DIR}/dict" ] && export HOPPER_DICT=${DIR}/dict
-    COMMENTS=$(grep -Pzo "(\/\/.*\n)*\s*\w+\s*${TEST_FN}\s*\(" ./$DIR/$DIR.h)
+    COMMENTS=$(${GREP} -Pzo "(\/\/.*\n)*\s*\w+\s*${TEST_FN}\s*\(" ./$DIR/$DIR.h)
     # info "$COMMENTS"
     if [[ $COMMENTS == *"ignore"* ]]; then
         warn "ignore test ${TEST_FN}"
@@ -104,9 +114,9 @@ hopper_test() {
         info "${TEST_FN} is expected to be crash (abort)"
         export TESTSUITE_ABORT=1
     fi
-    DEP=$(echo "$COMMENTS" | grep -Po 'depend\s*:\s*\K.+')
+    DEP=$(echo "$COMMENTS" | ${GREP} -Po 'depend\s*:\s*\K.+')
     info "dependencies: $DEP"
-    INFER=$(echo "$COMMENTS" | grep -Po 'infer\s*:\s*\K.+')
+    INFER=$(echo "$COMMENTS" | ${GREP} -Po 'infer\s*:\s*\K.+')
     info "infer: $INFER"
     export TESTSUITE_INFER="${INFER}"
     ${HOPPER} fuzz ${DIR}/output \

@@ -51,13 +51,39 @@ extern "C" fn sigv_handler(
             let instrs = crate::feedback::get_instr_list_mut();
             instrs.segv_addr = addr;
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         if let Some(context) = (_unused as *mut libc::ucontext_t).as_ref() {
-            let rip = context.uc_mcontext.gregs[libc::REG_RIP as usize];
             let instrs = crate::feedback::get_instr_list_mut();
-            instrs.rip_addr = rip as u64;
+            instrs.rip_addr = crash_pc(context);
         }
     }
+}
+
+/// Program counter of the faulting instruction saved in the signal context.
+#[cfg(target_os = "linux")]
+fn crash_pc(context: &libc::ucontext_t) -> u64 {
+    context.uc_mcontext.gregs[libc::REG_RIP as usize] as u64
+}
+
+/// Program counter of the faulting instruction saved in the signal context.
+#[cfg(all(target_os = "freebsd", target_arch = "x86_64"))]
+fn crash_pc(context: &libc::ucontext_t) -> u64 {
+    context.uc_mcontext.mc_rip as u64
+}
+
+/// Program counter of the faulting instruction saved in the signal context.
+#[cfg(all(target_os = "freebsd", target_arch = "aarch64"))]
+fn crash_pc(context: &libc::ucontext_t) -> u64 {
+    context.uc_mcontext.mc_gpregs.gp_elr as u64
+}
+
+/// FreeBSD architectures whose saved program counter Hopper does not decode.
+#[cfg(all(
+    target_os = "freebsd",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
+fn crash_pc(_context: &libc::ucontext_t) -> u64 {
+    crate::config::DEFAULT_RIP_ADDR
 }
 
 #[cfg(target_family = "unix")]
@@ -119,7 +145,7 @@ pub fn is_access_null() -> bool {
 }
 
 pub fn is_overflow_canary_at_rip(_rip: u64) -> bool {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     if get_rip_addr() != _rip {
         return false;
     }
