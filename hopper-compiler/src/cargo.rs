@@ -81,19 +81,25 @@ pub fn cargo_install(
     if env::var("HOPPER_TESTSUITE").is_ok() {
         features.push_str(",testsuite");
     }
-    let args = [
+    // Packaged installs ship vendored crates and point cargo at them.
+    let cargo_config = env::var("HOPPER_CARGO_CONFIG").ok();
+    let harness_path = harness_path.to_string_lossy();
+    let mut args = vec![
         "install",
         quiet_option,
         "--features",
         &features,
         "--force",
         "--path",
-        &harness_path.to_string_lossy(),
+        &harness_path,
         "--target-dir",
         &out_dir,
         "--root",
         &out_dir,
     ];
+    if let Some(config_path) = &cargo_config {
+        args.extend(["--config", config_path.as_str()]);
+    }
     log::info!(
         "cargo cmd: {:?} , args: {:?}, envs: {:?}",
         &cargo,

@@ -120,7 +120,11 @@ static void find_obj(u8* argv0) {
 
     ck_free(tmp);
     ck_free(dir);
-  } else {
+  }
+
+  /* Invoked by name from PATH, or through a symlink outside the install
+     directory: look next to the resolved executable. */
+  {
     char exepath[PATH_MAX];
     ssize_t exepath_len = current_exe_path(exepath, sizeof(exepath));
     if (exepath_len > 0 && exepath_len < PATH_MAX) {
